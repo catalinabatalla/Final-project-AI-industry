@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+*.env
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.ipynb_checkpoints/
+.pytest_cache/
+
+# Data and large files
+data_processed/
+mimic-iv-demo-2.2/
+*.gz
+*.parquet
+*.csv
+!dataset/physionet/mimic-iv-demo-2.2/demo_subject_id.csv
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
