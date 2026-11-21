@@ -66,6 +66,8 @@ HR, RR and SpO2 are measured about **every second**; the cuff only **every few m
 | ≥ 12 h | 97 | 89 | 81 |
 | ≥ 24 h | 75 | 70 | 63 |
 
+These numbers count cuff copies as measurements (see D7), so they may be slightly optimistic. To check: recompute coverage with real cuff measurements only.
+
 **To decide:** X and Y, and why.
 
 **Possible bias:** the cuff is almost always the weakest signal, and it is often missing in patients with an arterial line, who tend to be the sickest. This coverage rule may therefore exclude more severely ill patients, so our results may not hold for them. We check this by comparing included and excluded stays.
