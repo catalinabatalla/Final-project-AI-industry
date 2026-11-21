@@ -100,7 +100,7 @@ HR, RR and SpO2 are measured about **every second**; the cuff only **every few m
 ## D7 – Time grid 🟡
 **What:** our models need a table with one row per fixed time block (e.g. every 15 minutes). We average each signal within each block. The block size is "the grid".
 
-**Finding:** ~85% of cuff (NBP) rows are copies; the monitor re-writes the last value every ~2 min. Real new cuff measurements happen about every 20 minutes (median). The 11.5 min in notebook 01 came from synthetic data.
+**Finding:** ~85% of cuff (NBP) rows are copies; the monitor re-writes the last value every ~2 min. Real new cuff measurements happen about every 20 minutes (median).
 
 **Grid check (real cuff measurements, median stay):**
 | Grid | 15 min | 30 min | 60 min |
