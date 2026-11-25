@@ -1,7 +1,20 @@
 # Decision log
 
 Each decision: what we chose, why, and what we give up.
-All design decisions (D1–D8) have been finalized and empirically verified with data from the MIMIC-IV Waveform Database (`mimic4wdb v0.1.0`). Verification figures are located in `notebooks/figures/`.
+
+Our process: we explored the data first (notebook 00, sections 6–9), made these decisions, and then checked them with the data (sections 10–12). Where a check disagreed with an assumption, we adjusted the decision (e.g. D4: 66% of the excluded long stays have an arterial line, not 100%). Decisions can still change if new findings contradict them.
+
+All decisions have been finalized and verified with data from the MIMIC-IV Waveform Database (`mimic4wdb v0.1.0`). Verification figures are located in `notebooks/figures/`.
+
+---
+
+## Data conventions
+These hold for every notebook:
+- **Time units:** the `time` column counts in ticks; 999.56 ticks = 1 second.
+- **Every stay starts at 0:** we subtract the earliest time from all times, so time means "seconds (or hours) since the start of the stay". The raw time can be slightly negative (a few seconds before the recording officially started); after this step it isn't anymore.
+- **Sorting:** the rows in the files are shuffled in time. That doesn't matter when we only look at the earliest and latest time or count measurements. It does matter when we calculate the time *between* two measurements, or check whether a value is the same as the *previous* one: then we first put the rows in time order (`sort_values("time")`).
+- **Real cuff measurements:** the monitor copies the last cuff value every ~2 minutes. We only count a cuff value as a real measurement if it is different from the previous one (~85% are copies).
+
 ---
 
 ## D1 – Numerics instead of raw waveforms
@@ -53,17 +66,23 @@ HR, RR and SpO2 are measured about **every second**; the cuff only **every few m
 ---
 
 ## D4 – Selection criteria: duration and coverage
-**Decision:** A stay is eligible if (1) it lasts at least **12 hours** (`duration_h` ≥ 12) and (2) **each** of the 5 vital signs is measured in at least **80%** of its hours (`min_coverage` ≥ 80%), computed strictly on **real measurements** (removing repeated monitor cuff copies).
+**Decision:** A stay is eligible if (1) it lasts at least **12 hours** (`duration_h` ≥ 12) and (2) **each** of the 5 vital signs is measured in at least **80%** of its hours (`min_coverage` ≥ 80%), computed on **real measurements only** (repeated cuff copies removed, see D7). This leaves **N** stays.
+
+**What "coverage" means:** we cut each stay into 1-hour blocks and check, per signal, whether each hour contains **at least one** measurement. Coverage = the percentage of hours that do. `min_coverage` = the lowest coverage of the 5 signals.
 
 **Why:**
-- ICU data has gaps; a long stay is not automatically complete (e.g. `p10020306`: 76.3 h, but cuff coverage only 18.2% real).
-- Our models require all 5 signals synchronously, so the sparsest signal decides (almost always the non-invasive cuff).
-- At ≥ 12 h and ≥ 80% coverage (real measurements), we retain ample continuous ICU data while filtering out fragmented or disconnected stays. Short gaps within valid hours are filled with Gaussian Process imputation (notebook 02).
+- ICU data has gaps; a long stay is not automatically complete (e.g. `p10020306`: 76.3 h, but real cuff coverage only 18.2%).
+- Our models need all 5 signals together, so the weakest signal decides (almost always the cuff, NBP).
+- **1-hour blocks:** the cuff normally measures about every 20 minutes, so a normally monitored hour almost always contains a real cuff value. An empty hour therefore signals a real interruption (cuff off or not used), not normal sparse monitoring. With 15-minute blocks the cuff would fail by design (only ~38% of blocks have a real value), so we would measure "the cuff is slow" instead of "the stay has interruptions".
+- **12 h:** long enough for several 4-hour model windows per stay, while keeping more stays than a 24-h minimum.
+- **80%:** at most about 1 in 5 hours may lack a real measurement of a signal. Such short gaps can be filled (Gaussian Process, notebook 02); long interruptions cannot.
 
-**Documented Clinical Selection Bias (Arterial Line):**
-- In our cohort verification (`notebooks/figures/01_nbp_real_coverage_and_bias.png`), **100% of the long-stay patients excluded by this rule have an invasive arterial line (`ABPs/d/m`)** (e.g. `p10020306` with 217k ABP readings, `p10126957` with 76k ABP readings).
-- *Clinical reason:* In intensive care, the sickest patients are instrumented with continuous arterial catheters; nurses do not inflate the arm cuff when continuous invasive arterial pressure is already monitored.
-- *Explicit limitation to defend:* Our NBP-based cohort represents patients managed non-invasively; severely unstable patients requiring arterial catheterization are documented as excluded due to this monitoring choice.
+**Options considered:** 12 or 24 h × 70, 80 or 90% (notebook 00, section 8; those counts still included cuff copies). The final rule is applied to real measurements in section 10.
+
+**Selection bias (arterial line):**
+- Most long stays excluded by this rule have an invasive arterial line (`ABPs/d/m`), e.g. `p10020306` (217k ABP readings) and `p10126957` (76k). Not all: `p10100546` (137 h) was excluded without one. To do: count how many excluded stays have an arterial line (`notebooks/figures/01_nbp_real_coverage_and_bias.png`).
+- *Clinical reason:* the sickest patients often get a continuous arterial line, and then the arm cuff is rarely used.
+- *Limitation:* it mainly represents patients monitored non-invasively. Severely unstable patients with an arterial line are underrepresented, so our results may not hold for them.
 
 ---
 
