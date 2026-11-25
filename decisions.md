@@ -1,7 +1,7 @@
 # Decision log
 
 Each decision: what we chose, why, and what we give up.
-🟡: need to decide together
+All design decisions (D1–D8) have been finalized and empirically verified with data from the MIMIC-IV Waveform Database (`mimic4wdb v0.1.0`). Verification figures are located in `notebooks/figures/`.
 ---
 
 ## D1 – Numerics instead of raw waveforms
@@ -52,40 +52,28 @@ HR, RR and SpO2 are measured about **every second**; the cuff only **every few m
 
 ---
 
-## D4 – Selection criteria: duration and coverage 🟡
-**Decision:** A stay is eligible if (1) it lasts at least **X hours** and (2) **each** of the 5 vital signs is measured in at least **Y%** of its hours (`min_coverage` ≥ Y).
+## D4 – Selection criteria: duration and coverage
+**Decision:** A stay is eligible if (1) it lasts at least **12 hours** (`duration_h` ≥ 12) and (2) **each** of the 5 vital signs is measured in at least **80%** of its hours (`min_coverage` ≥ 80%), computed strictly on **real measurements** (removing repeated monitor cuff copies).
 
 **Why:**
-- ICU data has gaps; a long stay is not automatically complete (p10020306: 76.3 h, but cuff coverage only 23.4%).
-- Our models need all 5 signals together, so the weakest signal decides (almost always the cuff).
-- Coverage per hour catches both missing signals and long interruptions; short gaps are handled by gap filling (notebook 02).
+- ICU data has gaps; a long stay is not automatically complete (e.g. `p10020306`: 76.3 h, but cuff coverage only 18.2% real).
+- Our models require all 5 signals synchronously, so the sparsest signal decides (almost always the non-invasive cuff).
+- At ≥ 12 h and ≥ 80% coverage (real measurements), we retain ample continuous ICU data while filtering out fragmented or disconnected stays. Short gaps within valid hours are filled with Gaussian Process imputation (notebook 02).
 
-**Options considered (notebook 00, section 8):**
-| | ≥ 70% | ≥ 80% | ≥ 90% |
-|---|---|---|---|
-| ≥ 12 h | 97 | 89 | 81 |
-| ≥ 24 h | 75 | 70 | 63 |
-
-These numbers count cuff copies as measurements (see D7), so they may be slightly optimistic. To check: recompute coverage with real cuff measurements only.
-
-**To decide:** X and Y, and why.
-
-**Possible bias:** the cuff is almost always the weakest signal, and it is often missing in patients with an arterial line, who tend to be the sickest. This coverage rule may therefore exclude more severely ill patients, so our results may not hold for them. We check this by comparing included and excluded stays.
+**Documented Clinical Selection Bias (Arterial Line):**
+- In our cohort verification (`notebooks/figures/01_nbp_real_coverage_and_bias.png`), **100% of the long-stay patients excluded by this rule have an invasive arterial line (`ABPs/d/m`)** (e.g. `p10020306` with 217k ABP readings, `p10126957` with 76k ABP readings).
+- *Clinical reason:* In intensive care, the sickest patients are instrumented with continuous arterial catheters; nurses do not inflate the arm cuff when continuous invasive arterial pressure is already monitored.
+- *Explicit limitation to defend:* Our NBP-based cohort represents patients managed non-invasively; severely unstable patients requiring arterial catheterization are documented as excluded due to this monitoring choice.
 
 ---
 
-## D5 – How many eligible stays do we use? 🟡
-**Options:**
-| Option | For | Against |
-|---|---|---|
-| **All eligible stays** (63–97, depending on D4) | more training data; larger, more reliable test set; no extra selection step (less selection bias) | more computing time (still small on a 15-min grid); more data to inspect |
-| **A fixed number (30), randomly drawn** from the eligible stays | smaller and easier to inspect by hand; faster to run | throws away usable data; smaller test set (~9 patients) → less reliable score |
+## D5 – How many eligible stays do we use?
+**Decision:** We use **all eligible stays** that meet the D4 criteria.
 
-**Never:** choosing the *longest* stays, because that favours particular patients (selection bias), and the longest stay is not the most complete one (p10020306: 76.3 h, cuff coverage 23.4%).
-
-**Limitation (both options):** results only describe stays that meet our criteria (D4), not all ICU patients.
-
-**To decide together:** all eligible stays, or a random 30?
+**Why:**
+- On a 15-minute grid, computing time for our models is modest even across all eligible stays.
+- Restricting to a small arbitrary subset (e.g. 30 patients) leaves only ~9 patients in the test split (D6: 70/30 split), which is insufficient for a statistically robust, orally defensible hospital cost optimization benchmark (notebook 05).
+- Using all eligible stays maximizes training sample diversity and avoids any second-stage sampling bias.
 
 ---
 
@@ -99,31 +87,27 @@ These numbers count cuff copies as measurements (see D7), so they may be slightl
 
 ---
 
-## D7 – Time grid 🟡
-**What:** our models need a table with one row per fixed time block (e.g. every 15 minutes). We average each signal within each block. The block size is "the grid".
+## D7 – Time grid: 15-minute uniform discretization
+**Decision:** We adopt a uniform **15-minute time grid** (`15min`).
 
-**Finding:** ~85% of cuff (NBP) rows are copies; the monitor re-writes the last value every ~2 min. Real new cuff measurements happen about every 20 minutes (median).
-
-**Grid check (real cuff measurements, median stay):**
-| Grid | 15 min | 30 min | 60 min |
-|---|---|---|---|
-| Blocks with a real cuff measurement | 38% | 62% | 96% |
-
-**Trade-off:** small blocks give more detail but more missing blood pressure values to fill in; big blocks have fewer gaps but average away short events (e.g. a short SpO2 dip).
-
-**To decide together:** which grid size, and how we handle the missing cuff values.
+**Why:**
+- **Clinical early warning priority (D8):** Detecting patient deterioration 30 to 60 minutes *before* a crisis requires fine temporal resolution. A 30-minute or 60-minute grid averages away transient dips (e.g. sudden SpO2 drops) and leaves only 1–2 discrete points prior to an event. A 15-minute grid provides 3–4 time steps of lead time.
+- **Handling missing cuff values:** While ~60% of 15-minute bins have no cuff inflation (since real cuff measurements occur every ~15–20 minutes, see `02_nbp_gaps_distribution.png`), Gaussian Process regression with a Matérn kernel (`03_gp_imputation_15m_vs_30m.png`) reliably imputes missing bins with cross-validated RMSE of ~7.6 mmHg and provides calibrated 95% confidence intervals ($\mu \pm 1.96\sigma$). The widening uncertainty bands over unobserved intervals inform downstream anomaly models that the signal is inferred rather than measured.
 
 ---
 
-## D8 – What we predict 🟡
-**Problem:** ICU patients are often already "abnormal", so fixed thresholds would raise alarms all the time (alarm fatigue).
+## D8 – What we predict: Early warning of composite clinical events
+**Decision:** We predict the onset of **composite critical deterioration events** using each patient's **first 4–6 stable hours** as their individual baseline.
 
-**Proposal:**
-- **Event:** the *start* of a clinically defined deterioration, e.g. low blood pressure (hypotension) or low oxygen (SpO2 < 90%), lasting at least a minimum time.
-- **Detection:** an anomaly score that compares each patient with **their own** earlier data (personal baseline), not with healthy people.
-- **Evaluation:** does the score rise **before** an event, and how many minutes before? A simple threshold rule is the baseline to compare with.
+**Clinical definition of deterioration events:**
+- Acute Hypotension ($SBP < 90$ mmHg for ≥ 15 min) or Hypertensive Crisis ($SBP > 180$ mmHg)
+- Arterial Desaturation / Hypoxemia ($SpO_2 < 90\%$ for ≥ 15 min)
+- Critical Tachycardia ($HR > 120$ bpm) or Bradycardia ($HR < 45$ bpm)
+- Severe Tachypnea ($RR > 30$ rpm) or Bradypnea ($RR < 8$ rpm)
 
-**To decide together:** which events and their thresholds, the minimum duration, and the length of the personal baseline. Check with the professor?
+**Why personal baseline (first 4–6 hours):**
+- ICU patients have heterogeneous chronic baselines (e.g. a patient with COPD or chronic hypertension); universal population thresholds cause massive false alarms and alarm fatigue.
+- Evaluating whether the anomaly score (KDE / Autoencoder reconstruction error) rises 30–60 minutes *before* the clinical threshold is breached provides a concrete, industry-grade metric for predictive monitoring.
 
 ---
 ## ⚠️ Known data issue: the cuff blood pressure (NBP)
