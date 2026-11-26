@@ -24,3 +24,5 @@ mimic-iv-demo-2.2/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+!selected_stays.csv
