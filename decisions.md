@@ -139,6 +139,10 @@ HR, RR and SpO2 are measured about **every second**; the cuff only **every few m
 - ICU patients have heterogeneous chronic baselines (e.g. a patient with COPD or chronic hypertension); universal population thresholds cause massive false alarms and alarm fatigue.
 - Evaluating whether the anomaly score (KDE / Autoencoder reconstruction error) rises 30–60 minutes *before* the clinical threshold is breached provides a concrete, industry-grade metric for predictive monitoring.
 
+**Open points (to check in notebook 01):**
+- **Baseline:** the first hours of a stay are not always stable. E.g. the first included stay starts with HR ≈ 129 bpm, above the event threshold. We need to check how often this happens before using the first 4–6 hours as a baseline.
+- **Labels on real measurements:** events are defined on measured values, not on filled-in ones, so gap filling cannot create or hide events.
+
 ---
 
 ## D9 – Plausibility ranges (impossible values)
