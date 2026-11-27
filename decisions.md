@@ -66,7 +66,7 @@ HR, RR and SpO2 are measured about **every second**; the cuff only **every few m
 ---
 
 ## D4 – Selection criteria: duration and coverage
-**Decision:** A stay is eligible if (1) it lasts at least **12 hours** (`duration_h` ≥ 12) and (2) **each** of the 5 vital signs is measured in at least **80%** of its hours (`min_coverage` ≥ 80%), computed on **real measurements only** (repeated cuff copies removed, see D7). This leaves **N** stays.
+**Decision:** A stay is eligible if (1) it lasts at least **12 hours** (`duration_h` ≥ 12) and (2) **each** of the 5 vital signs is measured in at least **80%** of its hours (`min_coverage` ≥ 80%), computed on **real measurements only** (repeated cuff copies removed, see D7). This leaves **84** of the 194 stays (84 different patients), saved in `selected_stays.csv`.
 
 **What "coverage" means:** we cut each stay into 1-hour blocks and check, per signal, whether each hour contains **at least one** measurement. Coverage = the percentage of hours that do. `min_coverage` = the lowest coverage of the 5 signals.
 
@@ -80,9 +80,11 @@ HR, RR and SpO2 are measured about **every second**; the cuff only **every few m
 **Options considered:** 12 or 24 h × 70, 80 or 90% (notebook 00, section 8; those counts still included cuff copies). The final rule is applied to real measurements in section 10.
 
 **Selection bias (arterial line):**
-- Most long stays excluded by this rule have an invasive arterial line (`ABPs/d/m`), e.g. `p10020306` (217k ABP readings) and `p10126957` (76k). Not all: `p10100546` (137 h) was excluded without one. To do: count how many excluded stays have an arterial line (`notebooks/figures/01_nbp_real_coverage_and_bias.png`).
+- Of the 194 stays, 110 are excluded: 46 because they are shorter than 12 h, and 64 only because of low real cuff coverage.
+- Of those 64, **42 (two thirds) have an invasive arterial line** (`ABPs/d/m`), e.g. `p10020306` (217k ABP values). Not all: e.g. `p10100546` (137 h) has none.
+- Excluded stays also have far more long cuff pauses: gaps longer than 2 hours are ~17× more common than in included stays (notebook 00, section 11.1).
 - *Clinical reason:* the sickest patients often get a continuous arterial line, and then the arm cuff is rarely used.
-- *Limitation:* it mainly represents patients monitored non-invasively. Severely unstable patients with an arterial line are underrepresented, so our results may not hold for them.
+- *Limitation:* our cohort mainly represents patients monitored non-invasively. Severely unstable patients with an arterial line are probably underrepresented, so our results may not hold for them.
 
 ---
 
@@ -106,12 +108,21 @@ HR, RR and SpO2 are measured about **every second**; the cuff only **every few m
 
 ---
 
-## D7 – Time grid: 15-minute uniform discretization
-**Decision:** We adopt a uniform **15-minute time grid** (`15min`).
+## D7 – Time grid: 15-minute blocks
+**Decision:** all signals share one grid of **15-minute blocks**. Per block and per signal we store the **median**, **minimum**, **maximum** and **standard deviation**, plus whether the block contains a real measurement (`measured`).
 
-**Why:**
-- **Clinical early warning priority (D8):** Detecting patient deterioration 30 to 60 minutes *before* a crisis requires fine temporal resolution. A 30-minute or 60-minute grid averages away transient dips (e.g. sudden SpO2 drops) and leaves only 1–2 discrete points prior to an event. A 15-minute grid provides 3–4 time steps of lead time.
-- **Handling missing cuff values:** While ~60% of 15-minute bins have no cuff inflation (since real cuff measurements occur every ~15–20 minutes, see `02_nbp_gaps_distribution.png`), Gaussian Process regression with a Matérn kernel (`03_gp_imputation_15m_vs_30m.png`) reliably imputes missing bins with cross-validated RMSE of ~7.6 mmHg and provides calibrated 95% confidence intervals ($\mu \pm 1.96\sigma$). The widening uncertainty bands over unobserved intervals inform downstream anomaly models that the signal is inferred rather than measured.
+**Why one grid for all signals:** the models compare the five signals at the same moment (e.g. HR rising while blood pressure falls). A finer grid for the fast signals would no longer line up with the cuff.
+
+**Why 15 minutes:**
+- Real cuff measurements occur on average about every 20 minutes, often on a timer (peaks at 15, 30 and 60 min; notebook 00, section 11). In the included stays, 74% of the gaps between real cuff measurements are ≤ 15 min.
+- Early warning (D8) needs fine steps: 15 minutes gives 4 points in the hour before an event, 30 minutes only 2.
+- Trade-off: with 15-minute blocks more cuff values must be filled in (in the 84 stays, ~47% of the blocks have a real cuff measurement). In a test on one patient, the Gaussian Process filled gaps with an error (CV-RMSE) of 4.85 mmHg on the 15-min grid vs. 3.16 mmHg on the 30-min grid (notebook 00, section 12).
+
+**Why median, min, max and std instead of the mean:** HR, RR and SpO2 have ~900 values per block (one per second). The mean is sensitive to outliers and hides short dips or peaks (e.g. 2 minutes of SpO2 < 90%). The median gives a robust typical value; min and max keep short extremes visible; the std shows how restless the signal was.
+
+**Filling gaps (notebook 02):** a GP with a Matérn kernel (ν = 1.5) and a noise term. A GP with learned noise predicted hidden values better than one forced through every measurement (CV-RMSE 5.96 vs. 7.44 mmHg, notebook 00, section 12.1). It does smooth out single low values, so we keep the original measurements next to the filled values.
+
+**Expected effect on alarms:** more points per hour should help to catch deterioration earlier (fewer false negatives), but more filled-in values may cause more false alarms (false positives). A missed deterioration is usually worse in the ICU, so we accept this risk; the balance is tested with the cost model (notebook 05).
 
 ---
 
@@ -127,6 +138,19 @@ HR, RR and SpO2 are measured about **every second**; the cuff only **every few m
 **Why personal baseline (first 4–6 hours):**
 - ICU patients have heterogeneous chronic baselines (e.g. a patient with COPD or chronic hypertension); universal population thresholds cause massive false alarms and alarm fatigue.
 - Evaluating whether the anomaly score (KDE / Autoencoder reconstruction error) rises 30–60 minutes *before* the clinical threshold is breached provides a concrete, industry-grade metric for predictive monitoring.
+
+---
+
+## D9 – Plausibility ranges (impossible values)
+**Decision:** values outside wide plausibility ranges are treated as missing: HR 20–250 bpm, RR 3–60 /min, SpO2 50–100%, NBPs 40–260 mmHg, NBPd 20–180 mmHg, and NBPs must be higher than NBPd. Only the faulty cell is emptied, never the whole row.
+
+**Why:** sensors sometimes produce impossible values (e.g. HR = 0 from a loose sticker). Left in, the models would see a sensor error as deterioration. The ranges are wide, so real extreme values, which we want to detect, stay.
+
+**Result (84 stays):** removed HR 2,585 (all 0 in the first stay), RR 28,356, SpO2 376 and cuff 9 values. For RR, 88% of the removed values are exactly 0.
+
+**Check (RR = 0):** of 1,275 stretches of RR = 0, 11 last longer than 5 minutes (2.7 h, ~40% of all zeros): certainly sensor dropouts. Short stretches (< 1 min) do not show more SpO2 drops than long ones (≥ 4 points: 18% vs. 36%), so there is no evidence of real breathing pauses.
+
+**Limitation:** no comparison with random windows; extra oxygen can mask a short apnea. Bradypnea (RR < 8, D8) stays detectable.
 
 ---
 ## ⚠️ Known data issue: the cuff blood pressure (NBP)
