@@ -143,6 +143,8 @@ HR, RR and SpO2 are measured about **every second**; the cuff only **every few m
 - **Baseline:** the first hours of a stay are not always stable. E.g. the first included stay starts with HR ≈ 129 bpm, above the event threshold. We need to check how often this happens before using the first 4–6 hours as a baseline.
 - **Labels on real measurements:** events are defined on measured values, not on filled-in ones, so gap filling cannot create or hide events.
 
+**Check (notebook 01, section 5.2):** on the block median, NBPs < 90 occurs in 8.3% and HR > 120 in 4.8% of the measured blocks; SpO2 < 90 only in 0.9%. The block min/max cross the RR and SpO2 thresholds far more often (RR > 30: 44%, SpO2 < 90: 22%), mostly due to short artifacts. Events are therefore defined on the block median and must last ≥ 15 minutes.
+
 ---
 
 ## D9 – Plausibility ranges (impossible values)
